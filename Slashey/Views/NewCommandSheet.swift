@@ -57,7 +57,7 @@ struct NewCommandSheet: View {
 
             Form {
                 Section {
-                    TextField("Command name", text: $name)
+                    TextField("", text: $name, prompt: Text("my-command"))
                         .textFieldStyle(.roundedBorder)
 
                     if !name.isEmpty && !isValid {
@@ -74,7 +74,13 @@ struct NewCommandSheet: View {
                 }
 
                 Section("Description") {
-                    TextField("Brief description of what this command does", text: $description)
+                    TextField(
+                        "",
+                        text: $description,
+                        prompt: Text("Brief description of what this command does"),
+                        axis: .vertical
+                    )
+                    .lineLimit(2...4)
                 }
 
                 Section {

@@ -182,21 +182,16 @@ struct CommandRowView: View {
     }
 
     private var syncCoverageBadge: some View {
-        let text: String
-        if isFullySynced {
-            text = "All services"
-        } else {
-            text = linkedServices.map { $0.displayName }.joined(separator: ", ")
-        }
+        HStack(spacing: 4) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
 
-        return Label(text, systemImage: "arrow.triangle.2.circlepath")
-            .font(.caption2)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.secondary.opacity(0.15))
-            .foregroundStyle(.secondary)
-            .clipShape(Capsule())
-            .help(isFullySynced ? "Synced to every installed service" : "Also synced to: \(text)")
+            ForEach(linkedServices, id: \.self) { service in
+                ServiceBadge(service: service, compact: true)
+            }
+        }
+        .help(isFullySynced ? "Synced to all installed services" : "Also synced to: \(linkedServices.map { $0.displayName }.joined(separator: ", "))")
     }
 
     private var isFullySynced: Bool {
@@ -216,14 +211,17 @@ struct CommandRowView: View {
 
 struct ServiceBadge: View {
     let service: Service
+    var compact: Bool = false
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: compact ? 0 : 4) {
             Image(systemName: service.iconName)
-            Text(service.displayName)
+            if !compact {
+                Text(service.displayName)
+            }
         }
         .font(.caption2)
-        .padding(.horizontal, 6)
+        .padding(.horizontal, compact ? 4 : 6)
         .padding(.vertical, 2)
         .background(service.color.opacity(0.15))
         .foregroundStyle(service.color)
