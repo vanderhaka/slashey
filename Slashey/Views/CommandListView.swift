@@ -181,17 +181,35 @@ struct CommandRowView: View {
         }
     }
 
+    @ViewBuilder
     private var syncCoverageBadge: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-            ForEach(linkedServices, id: \.self) { service in
-                ServiceBadge(service: service, compact: true)
+        if isFullySynced {
+            // Fully synced - green checkmark
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark.circle.fill")
+                Text("All")
             }
+            .font(.caption2)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.green.opacity(0.15))
+            .foregroundStyle(.green)
+            .clipShape(Capsule())
+            .help("Synced to all installed services")
+        } else {
+            // Partially synced - show "+N" count
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                Text("+\(linkedServices.count)")
+            }
+            .font(.caption2)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.blue.opacity(0.15))
+            .foregroundStyle(.blue)
+            .clipShape(Capsule())
+            .help("Also synced to: \(linkedServices.map { $0.displayName }.joined(separator: ", "))")
         }
-        .help(isFullySynced ? "Synced to all installed services" : "Also synced to: \(linkedServices.map { $0.displayName }.joined(separator: ", "))")
     }
 
     private var isFullySynced: Bool {
@@ -211,17 +229,14 @@ struct CommandRowView: View {
 
 struct ServiceBadge: View {
     let service: Service
-    var compact: Bool = false
 
     var body: some View {
-        HStack(spacing: compact ? 0 : 4) {
+        HStack(spacing: 4) {
             Image(systemName: service.iconName)
-            if !compact {
-                Text(service.displayName)
-            }
+            Text(service.displayName)
         }
         .font(.caption2)
-        .padding(.horizontal, compact ? 4 : 6)
+        .padding(.horizontal, 6)
         .padding(.vertical, 2)
         .background(service.color.opacity(0.15))
         .foregroundStyle(service.color)
