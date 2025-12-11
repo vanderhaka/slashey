@@ -155,6 +155,70 @@ final class CommandStore {
         invalidateSyncedServicesCache()
     }
 
+    /// Updates which services have a command - adds to new services, removes from deselected ones
+    func updateCommandServices(_ command: SlasheyCommand, services: Set<Service>) async throws {
+        // Get current services where this command exists
+        let currentServices = Set([command.sourceService] + syncedServices(for: command))
+
+        // Add to new services
+        let toAdd = services.subtracting(currentServices)
+        for service in toAdd {
+            guard let adapter = adapters[service] else { continue }
+
+            var newCommand = command
+            newCommand.sourceService = service
+
+            try await adapter.saveCommand(newCommand)
+
+            // Add to in-memory list
+            commands.append(newCommand)
+        }
+
+        // Remove from deselected services
+        let toRemove = currentServices.subtracting(services)
+        for service in toRemove {
+            guard let adapter = adapters[service] else { continue }
+
+            // Find the command instance for this service
+            if let existing = commands.first(where: {
+                $0.name == command.name &&
+                $0.scope == command.scope &&
+                $0.namespace == command.namespace &&
+                $0.sourceService == service &&
+                (command.scope != .project || $0.projectPath == command.projectPath)
+            }) {
+                try await adapter.deleteCommand(existing)
+                commands.removeAll { $0.id == existing.id }
+            }
+        }
+
+        invalidateSyncedServicesCache()
+    }
+
+    /// Deletes a command from all services where it exists
+    func deleteCommandFromAllServices(_ command: SlasheyCommand) async throws {
+        // Get all services where this command exists
+        let allServices = [command.sourceService] + syncedServices(for: command)
+
+        for service in allServices {
+            guard let adapter = adapters[service] else { continue }
+
+            // Find the command instance for this service
+            if let existing = commands.first(where: {
+                $0.name == command.name &&
+                $0.scope == command.scope &&
+                $0.namespace == command.namespace &&
+                $0.sourceService == service &&
+                (command.scope != .project || $0.projectPath == command.projectPath)
+            }) {
+                try await adapter.deleteCommand(existing)
+                commands.removeAll { $0.id == existing.id }
+            }
+        }
+
+        invalidateSyncedServicesCache()
+    }
+
     // MARK: - Helpers
 
     func syncedServices(for command: SlasheyCommand) -> [Service] {

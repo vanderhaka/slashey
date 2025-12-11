@@ -16,7 +16,7 @@ struct NewCommandSheet: View {
     @State private var name = ""
     @State private var description = ""
     @State private var content = ""
-    @State private var selectedService: Service = .claudeCode
+    @State private var selectedServices: Set<Service> = []
     @State private var activationMode: ActivationMode = .manual
     @State private var isSaving = false
 
@@ -24,7 +24,11 @@ struct NewCommandSheet: View {
         Service.allCases.filter { serviceDetector.isInstalled($0) }
     }
 
-    var isValid: Bool {
+    var allServicesSelected: Bool {
+        !availableServices.isEmpty && selectedServices.count == availableServices.count
+    }
+
+    var isNameValid: Bool {
         guard !name.isEmpty else { return false }
         // All characters must be letters, numbers, dashes, or underscores
         guard name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { return false }
@@ -33,6 +37,10 @@ struct NewCommandSheet: View {
               (first.isLetter || first.isNumber),
               (last.isLetter || last.isNumber) else { return false }
         return true
+    }
+
+    var isValid: Bool {
+        isNameValid && !selectedServices.isEmpty
     }
 
     var body: some View {
@@ -60,7 +68,7 @@ struct NewCommandSheet: View {
                     TextField("", text: $name, prompt: Text("my-command"))
                         .textFieldStyle(.roundedBorder)
 
-                    if !name.isEmpty && !isValid {
+                    if !name.isEmpty && !isNameValid {
                         Label("Name must start and end with a letter or number, and contain only letters, numbers, dashes, or underscores", systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
                             .foregroundStyle(.orange)
@@ -84,13 +92,49 @@ struct NewCommandSheet: View {
                 }
 
                 Section {
-                    Picker("Service", selection: $selectedService) {
-                        ForEach(availableServices) { service in
-                            Label(service.displayName, systemImage: service.iconName)
-                                .tag(service)
+                    Toggle(isOn: Binding(
+                        get: { allServicesSelected },
+                        set: { selectAll in
+                            selectedServices = selectAll ? Set(availableServices) : []
+                        })
+                    ) {
+                        Label("All installed services", systemImage: "checklist")
+                    }
+
+                    ForEach(availableServices, id: \.self) { service in
+                        Toggle(isOn: Binding(
+                            get: { selectedServices.contains(service) },
+                            set: { isOn in
+                                if isOn {
+                                    selectedServices.insert(service)
+                                } else {
+                                    selectedServices.remove(service)
+                                }
+                            })
+                        ) {
+                            HStack(spacing: 8) {
+                                Image(systemName: service.iconName)
+                                    .foregroundStyle(service.color)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(service.displayName)
+                                    Text(service.userCommandsPath)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                         }
                     }
 
+                    if selectedServices.isEmpty {
+                        Label("Select at least one service", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                } header: {
+                    Text("Save To")
+                }
+
+                Section {
                     Picker("Activation", selection: $activationMode) {
                         ForEach(ActivationMode.allCases, id: \.self) { mode in
                             Text(mode.displayName).tag(mode)
@@ -152,10 +196,8 @@ struct NewCommandSheet: View {
         }
         .frame(width: 500, height: 580)
         .onAppear {
-            // Default to first available service
-            if let first = availableServices.first {
-                selectedService = first
-            }
+            // Default to all available services selected
+            selectedServices = Set(availableServices)
         }
     }
 
@@ -175,20 +217,32 @@ struct NewCommandSheet: View {
     private func createCommand() async {
         isSaving = true
 
-        let command = SlasheyCommand(
-            name: name,
-            description: description,
-            content: content,
-            scope: scope,
-            activationMode: activationMode,
-            sourceService: selectedService
-        )
+        var createdCount = 0
+        var lastError: Error?
 
-        do {
-            try await commandStore.addCommand(command)
-            appState.showSuccess("Command '\(name)' created")
+        for service in selectedServices {
+            let command = SlasheyCommand(
+                name: name,
+                description: description,
+                content: content,
+                scope: scope,
+                activationMode: activationMode,
+                sourceService: service
+            )
+
+            do {
+                try await commandStore.addCommand(command)
+                createdCount += 1
+            } catch {
+                lastError = error
+            }
+        }
+
+        if createdCount == selectedServices.count {
+            let serviceText = selectedServices.count == 1 ? "1 service" : "\(selectedServices.count) services"
+            appState.showSuccess("Command '\(name)' created in \(serviceText)")
             dismiss()
-        } catch {
+        } else if let error = lastError {
             appState.showErrorAlert(
                 title: "Failed to Create Command",
                 message: error.localizedDescription

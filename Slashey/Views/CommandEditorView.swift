@@ -17,9 +17,11 @@ struct CommandEditorView: View {
 
     @State private var isSaving = false
     @State private var isDeleting = false
+    @State private var isApplyingServices = false
     @State private var showDeleteConfirmation = false
     @State private var showUnsavedSyncWarning = false
-    @State private var selectedSyncServices: Set<Service>
+    @State private var selectedServices: Set<Service>
+    @State private var baselineServices: Set<Service>
     @State private var baselineCommand: SlasheyCommand
     @State private var editedContent: String
     @State private var editedDescription: String
@@ -47,15 +49,29 @@ struct CommandEditorView: View {
         self._editedDescription = State(initialValue: command.description)
         self._editedName = State(initialValue: command.name)
         self._baselineCommand = State(initialValue: command)
-        let preselected = Set(commandStore.syncedServices(for: command))
+        // Calculate all services this command exists in (source + synced copies)
+        let currentServices = Set([command.sourceService] + commandStore.syncedServices(for: command))
             .intersection(serviceDetector.installedServices)
-        self._selectedSyncServices = State(initialValue: preselected)
+        self._selectedServices = State(initialValue: currentServices)
+        self._baselineServices = State(initialValue: currentServices)
     }
 
     var hasUnsavedChanges: Bool {
         editedContent != baselineCommand.content ||
         editedDescription != baselineCommand.description ||
         editedName != baselineCommand.name
+    }
+
+    var hasServiceChanges: Bool {
+        selectedServices != baselineServices
+    }
+
+    var allServicesSelected: Bool {
+        !installedServices.isEmpty && selectedServices.count == installedServices.count
+    }
+
+    var installedServices: [Service] {
+        serviceDetector.installedServices.sorted { $0.displayName < $1.displayName }
     }
 
     var isNameValid: Bool {
@@ -137,54 +153,31 @@ struct CommandEditorView: View {
                 }
             }
 
-            Section("Sync To") {
-                if syncableTargets.isEmpty {
+            Section("Services") {
+                if installedServices.isEmpty {
                     ContentUnavailableView {
-                        Label("No Other Services", systemImage: "app.dashed")
+                        Label("No Services Installed", systemImage: "app.dashed")
                     } description: {
-                        Text("Install another supported service to sync this command.")
+                        Text("Install a supported service to manage this command.")
                     }
                 } else {
-                    // Source service badge (non-interactive)
-                    HStack(spacing: 8) {
-                        Image(systemName: command.sourceService.iconName)
-                            .foregroundStyle(command.sourceService.color)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(command.sourceService.displayName)
-                            Text("Source")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Text("Source")
-                            .font(.caption)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(command.sourceService.color.opacity(0.15))
-                            .foregroundStyle(command.sourceService.color)
-                            .clipShape(Capsule())
-                    }
-                    .padding(.vertical, 4)
-
-                    Divider()
-
                     Toggle(isOn: Binding(
-                        get: { allTargetsSelected },
+                        get: { allServicesSelected },
                         set: { selectAll in
-                            selectedSyncServices = selectAll ? Set(syncableTargets) : []
+                            selectedServices = selectAll ? Set(installedServices) : []
                         })
                     ) {
-                        Label("Sync to all other services", systemImage: "checklist")
+                        Label("All installed services", systemImage: "checklist")
                     }
 
-                    ForEach(syncableTargets, id: \.self) { service in
+                    ForEach(installedServices, id: \.self) { service in
                         Toggle(isOn: Binding(
-                            get: { selectedSyncServices.contains(service) },
+                            get: { selectedServices.contains(service) },
                             set: { isOn in
                                 if isOn {
-                                    selectedSyncServices.insert(service)
+                                    selectedServices.insert(service)
                                 } else {
-                                    selectedSyncServices.remove(service)
+                                    selectedServices.remove(service)
                                 }
                             })
                         ) {
@@ -201,39 +194,47 @@ struct CommandEditorView: View {
                         }
                     }
 
-                    Button {
-                        if hasUnsavedChanges {
-                            showUnsavedSyncWarning = true
-                        } else {
-                            Task { await syncSelectedTargets() }
-                        }
-                    } label: {
-                        if syncEngine.isSyncing {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Label("Sync Selected", systemImage: "arrow.triangle.2.circlepath")
-                        }
+                    if selectedServices.isEmpty {
+                        Label("Select at least one service", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
                     }
-                    .disabled(selectedSyncServices.isEmpty || syncEngine.isSyncing || isSaving || isDeleting)
-                    .help("Sync this command to the selected services")
+
+                    if hasServiceChanges {
+                        Button {
+                            if hasUnsavedChanges {
+                                showUnsavedSyncWarning = true
+                            } else {
+                                Task { await applyServiceChanges() }
+                            }
+                        } label: {
+                            if isApplyingServices {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Label("Apply Changes", systemImage: "checkmark.circle")
+                            }
+                        }
+                        .disabled(selectedServices.isEmpty || isApplyingServices || isSaving || isDeleting)
+                        .help("Add or remove this command from selected services")
+                    }
                 }
             }
             .alert("Unsaved Changes", isPresented: $showUnsavedSyncWarning) {
-                Button("Save & Sync") {
+                Button("Save & Apply") {
                     Task {
                         await saveCommand()
-                        if !hasUnsavedChanges { // Only sync if save succeeded
-                            await syncSelectedTargets()
+                        if !hasUnsavedChanges { // Only apply if save succeeded
+                            await applyServiceChanges()
                         }
                     }
                 }
-                Button("Sync Without Saving", role: .destructive) {
-                    Task { await syncSelectedTargets() }
+                Button("Apply Without Saving", role: .destructive) {
+                    Task { await applyServiceChanges() }
                 }
                 Button("Cancel", role: .cancel) { }
             } message: {
-                Text("You have unsaved changes. Syncing now will use the current edited content, but the source file won't be updated until you save.")
+                Text("You have unsaved changes. Applying service changes now will use the current edited content, but the source file won't be updated until you save.")
             }
 
             Section {
@@ -340,12 +341,12 @@ struct CommandEditorView: View {
             isPresented: $showDeleteConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Delete", role: .destructive) {
+            Button("Delete from all services", role: .destructive) {
                 Task { await deleteCommand() }
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This removes the command file from \(command.sourceService.displayName).")
+            Text("This removes the command file from all services where it exists.")
         }
     }
 
@@ -434,44 +435,57 @@ struct CommandEditorView: View {
         isSaving = false
     }
 
-    private func syncSelectedTargets() async {
-        guard !selectedSyncServices.isEmpty else { return }
+    private func applyServiceChanges() async {
+        guard !selectedServices.isEmpty else { return }
 
-        var toSync = command
-        toSync.content = editedContent
-        toSync.description = editedDescription
+        isApplyingServices = true
 
-        await syncEngine.syncCommand(toSync, to: selectedSyncServices)
+        do {
+            // Build a command with current edits for syncing
+            var toSync = command
+            toSync.content = editedContent
+            toSync.description = editedDescription
+            toSync.name = editedName
 
-        if let error = syncEngine.syncError {
-            appState.showError("Sync failed: \(error)")
-        } else {
+            try await commandStore.updateCommandServices(toSync, services: selectedServices)
+
             await commandStore.loadAllCommands()
-            // Match on both id AND sourceService to find the original source command,
-            // not a synced copy with the same id but different service
+
+            // Find a refreshed version of this command (from any service)
             if let refreshed = commandStore.commands.first(where: {
-                $0.id == command.id && $0.sourceService == command.sourceService
+                $0.name == editedName &&
+                $0.scope == command.scope &&
+                $0.namespace == command.namespace &&
+                selectedServices.contains($0.sourceService)
             }) {
                 baselineCommand = refreshed
                 editedContent = refreshed.content
                 editedDescription = refreshed.description
+                editedName = refreshed.name
                 onUpdate?(refreshed)
             }
 
-            let refreshedSelections = Set(commandStore.syncedServices(for: baselineCommand))
+            // Update baseline services to reflect current state
+            let newBaseline = Set([baselineCommand.sourceService] + commandStore.syncedServices(for: baselineCommand))
                 .intersection(serviceDetector.installedServices)
-            selectedSyncServices = refreshedSelections
+            baselineServices = newBaseline
+            selectedServices = newBaseline
 
-            appState.showSuccess("Synced to \(selectedSyncServices.count) service\(selectedSyncServices.count == 1 ? "" : "s")")
+            appState.showSuccess("Services updated")
+        } catch {
+            appState.showError("Failed to update services: \(error.localizedDescription)")
         }
+
+        isApplyingServices = false
     }
 
     private func deleteCommand() async {
         isDeleting = true
 
         do {
-            try await commandStore.deleteCommand(command)
-            appState.showSuccess("Command deleted")
+            // Delete from all services where this command exists
+            try await commandStore.deleteCommandFromAllServices(command)
+            appState.showSuccess("Command deleted from all services")
             onDelete?(command)
         } catch {
             appState.showErrorAlert(
@@ -483,15 +497,6 @@ struct CommandEditorView: View {
         isDeleting = false
     }
 
-    private var syncableTargets: [Service] {
-        serviceDetector.installedServices
-            .filter { $0 != command.sourceService }
-            .sorted { $0.displayName < $1.displayName }
-    }
-
-    private var allTargetsSelected: Bool {
-        !syncableTargets.isEmpty && selectedSyncServices.count == syncableTargets.count
-    }
 }
 
 struct EmptyEditorView: View {

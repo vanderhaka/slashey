@@ -127,6 +127,12 @@ struct CommandRowView: View {
     let linkedServices: [Service]
     let installedServices: Set<Service>
 
+    /// All services this command exists in (source + linked)
+    var allServices: [Service] {
+        let services = Set([command.sourceService] + linkedServices)
+        return services.sorted { $0.displayName < $1.displayName }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -135,12 +141,9 @@ struct CommandRowView: View {
 
                 Spacer()
 
+                // Show service badges
                 if showService {
-                    ServiceBadge(service: command.sourceService)
-                }
-
-                if !linkedServices.isEmpty {
-                    syncCoverageBadge
+                    serviceBadges
                 }
             }
 
@@ -182,12 +185,12 @@ struct CommandRowView: View {
     }
 
     @ViewBuilder
-    private var syncCoverageBadge: some View {
-        if isFullySynced {
-            // Fully synced - green checkmark
+    private var serviceBadges: some View {
+        if isFullyCovered {
+            // All services - green checkmark
             HStack(spacing: 4) {
                 Image(systemName: "checkmark.circle.fill")
-                Text("All")
+                Text("All services")
             }
             .font(.caption2)
             .padding(.horizontal, 6)
@@ -195,26 +198,33 @@ struct CommandRowView: View {
             .background(Color.green.opacity(0.15))
             .foregroundStyle(.green)
             .clipShape(Capsule())
-            .help("Synced to all installed services")
+            .help("Available in all installed services: \(allServices.map { $0.displayName }.joined(separator: ", "))")
+        } else if allServices.count == 1 {
+            // Single service - show service badge
+            ServiceBadge(service: allServices[0])
         } else {
-            // Partially synced - show "+N" count
+            // Multiple services - show count
             HStack(spacing: 4) {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                Text("+\(linkedServices.count)")
+                ForEach(allServices.prefix(2), id: \.self) { service in
+                    Image(systemName: service.iconName)
+                        .foregroundStyle(service.color)
+                }
+                if allServices.count > 2 {
+                    Text("+\(allServices.count - 2)")
+                        .foregroundStyle(.secondary)
+                }
             }
             .font(.caption2)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(Color.blue.opacity(0.15))
-            .foregroundStyle(.blue)
+            .background(Color.secondary.opacity(0.1))
             .clipShape(Capsule())
-            .help("Also synced to: \(linkedServices.map { $0.displayName }.joined(separator: ", "))")
+            .help("Available in: \(allServices.map { $0.displayName }.joined(separator: ", "))")
         }
     }
 
-    private var isFullySynced: Bool {
-        let coverage = Set(linkedServices).union([command.sourceService])
-        return !installedServices.isEmpty && coverage == installedServices
+    private var isFullyCovered: Bool {
+        !installedServices.isEmpty && Set(allServices) == installedServices
     }
 
     private var activationIcon: String {
