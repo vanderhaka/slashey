@@ -105,6 +105,15 @@ struct NewCommandSheet: View {
                         .scrollContentBackground(.hidden)
                         .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
                         .cornerRadius(6)
+                        .overlay(alignment: .topLeading) {
+                            if content.isEmpty {
+                                Text("Enter your command prompt here...")
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 8)
+                                    .padding(.leading, 4)
+                                    .allowsHitTesting(false)
+                            }
+                        }
                 }
             }
             .formStyle(.grouped)

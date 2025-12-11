@@ -21,7 +21,8 @@ struct CommandListView: View {
             let query = searchText.lowercased()
             commands = commands.filter {
                 $0.name.lowercased().contains(query) ||
-                $0.description.lowercased().contains(query)
+                $0.description.lowercased().contains(query) ||
+                $0.content.lowercased().contains(query)
             }
         }
         return commands.sorted { $0.name < $1.name }
@@ -99,7 +100,7 @@ struct CommandListView: View {
                     Text("Sync commands between Claude Code, Cursor, and Windsurf")
 
                     Text("Get started by creating your first command, or import existing commands from your installed services.")
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                 }
             } actions: {
                 Button {
@@ -153,16 +154,31 @@ struct CommandRowView: View {
             HStack(spacing: 8) {
                 Label(command.activationMode.displayName, systemImage: activationIcon)
                     .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
+                    .help(activationTooltip)
 
                 if let globs = command.globs, !globs.isEmpty {
                     Label("\(globs.count) patterns", systemImage: "doc.text.magnifyingglass")
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
+                        .help("File patterns that trigger this command")
                 }
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private var activationTooltip: String {
+        switch command.activationMode {
+        case .always:
+            return "Always: Automatically included in every conversation"
+        case .manual:
+            return "Manual: Invoke with /\(command.name)"
+        case .autoAttach:
+            return "Auto-attach: Included when matching files are open"
+        case .modelDecision:
+            return "AI Decides: The AI decides when to use this based on its description"
+        }
     }
 
     private var syncCoverageBadge: some View {

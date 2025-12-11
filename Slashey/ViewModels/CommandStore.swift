@@ -133,6 +133,28 @@ final class CommandStore {
         invalidateSyncedServicesCache()
     }
 
+    func renameCommand(_ command: SlasheyCommand, to newName: String) async throws {
+        guard let adapter = adapters[command.sourceService] else {
+            throw NSError(domain: "Slashey", code: 2, userInfo: [NSLocalizedDescriptionKey: "No adapter for service"])
+        }
+
+        // Delete the old file first
+        try await adapter.deleteCommand(command)
+
+        // Create updated command with new name
+        var renamedCommand = command
+        renamedCommand.name = newName
+
+        // Save the new file
+        try await adapter.saveCommand(renamedCommand)
+
+        // Update in-memory list
+        if let index = commands.firstIndex(where: { $0.id == command.id }) {
+            commands[index] = renamedCommand
+        }
+        invalidateSyncedServicesCache()
+    }
+
     // MARK: - Helpers
 
     func syncedServices(for command: SlasheyCommand) -> [Service] {

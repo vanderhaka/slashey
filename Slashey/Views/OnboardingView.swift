@@ -47,12 +47,15 @@ struct OnboardingView: View {
 
                 Spacer()
 
-                // Page indicators
+                // Page indicators (clickable)
                 HStack(spacing: 6) {
                     ForEach(0..<4, id: \.self) { index in
                         Circle()
                             .fill(index == currentPage ? Color.accentColor : Color.secondary.opacity(0.3))
-                            .frame(width: 6, height: 6)
+                            .frame(width: 8, height: 8)
+                            .onTapGesture {
+                                withAnimation { currentPage = index }
+                            }
                     }
                 }
 
@@ -65,6 +68,7 @@ struct OnboardingView: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(currentPage == 1 && syncEngine.enabledServices.count < 2)
                 } else {
                     Button("Get Started") {
                         onComplete()
@@ -183,7 +187,7 @@ struct ServiceToggleRow: View {
 
                 Text(servicePath(for: service))
                     .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
             }
 
             Spacer()

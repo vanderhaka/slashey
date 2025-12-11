@@ -11,6 +11,7 @@ struct CommandEditorView: View {
     let syncEngine: SyncEngine
     let serviceDetector: ServiceDetector
     let appState: AppState
+    let onUnsavedChangesChanged: ((Bool) -> Void)?
     let onUpdate: ((SlasheyCommand) -> Void)?
     let onDelete: ((SlasheyCommand) -> Void)?
 
@@ -22,6 +23,7 @@ struct CommandEditorView: View {
     @State private var baselineCommand: SlasheyCommand
     @State private var editedContent: String
     @State private var editedDescription: String
+    @State private var editedName: String
 
     init(
         command: SlasheyCommand,
@@ -29,6 +31,7 @@ struct CommandEditorView: View {
         syncEngine: SyncEngine,
         serviceDetector: ServiceDetector,
         appState: AppState,
+        onUnsavedChangesChanged: ((Bool) -> Void)? = nil,
         onUpdate: ((SlasheyCommand) -> Void)? = nil,
         onDelete: ((SlasheyCommand) -> Void)? = nil
     ) {
@@ -37,10 +40,12 @@ struct CommandEditorView: View {
         self.syncEngine = syncEngine
         self.serviceDetector = serviceDetector
         self.appState = appState
+        self.onUnsavedChangesChanged = onUnsavedChangesChanged
         self.onUpdate = onUpdate
         self.onDelete = onDelete
         self._editedContent = State(initialValue: command.content)
         self._editedDescription = State(initialValue: command.description)
+        self._editedName = State(initialValue: command.name)
         self._baselineCommand = State(initialValue: command)
         let preselected = Set(commandStore.syncedServices(for: command))
             .intersection(serviceDetector.installedServices)
@@ -48,20 +53,38 @@ struct CommandEditorView: View {
     }
 
     var hasUnsavedChanges: Bool {
-        editedContent != baselineCommand.content || editedDescription != baselineCommand.description
+        editedContent != baselineCommand.content ||
+        editedDescription != baselineCommand.description ||
+        editedName != baselineCommand.name
+    }
+
+    var isNameValid: Bool {
+        guard !editedName.isEmpty else { return false }
+        guard editedName.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { return false }
+        guard let first = editedName.first, let last = editedName.last,
+              (first.isLetter || first.isNumber),
+              (last.isLetter || last.isNumber) else { return false }
+        return true
     }
 
     var body: some View {
         Form {
             Section("Details") {
-                LabeledContent {
-                    Text(command.name)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                } label: {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Name")
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+
+                    TextField("Command name", text: $editedName)
+                        .textFieldStyle(.roundedBorder)
+
+                    if !editedName.isEmpty && !isNameValid {
+                        Label("Name must start and end with a letter or number, and contain only letters, numbers, dashes, or underscores", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
                 }
-                .help("The command's filename (without extension). Used to invoke the command with /\(command.name)")
+                .help("The command's filename (without extension). Used to invoke the command with /\(editedName)")
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Description")
@@ -115,32 +138,49 @@ struct CommandEditorView: View {
             }
 
             Section("Sync To") {
-                if availableSyncTargets.isEmpty {
+                if syncableTargets.isEmpty {
                     ContentUnavailableView {
                         Label("No Other Services", systemImage: "app.dashed")
                     } description: {
                         Text("Install another supported service to sync this command.")
                     }
                 } else {
+                    // Source service badge (non-interactive)
+                    HStack(spacing: 8) {
+                        Image(systemName: command.sourceService.iconName)
+                            .foregroundStyle(command.sourceService.color)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(command.sourceService.displayName)
+                            Text("Source")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text("Source")
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(command.sourceService.color.opacity(0.15))
+                            .foregroundStyle(command.sourceService.color)
+                            .clipShape(Capsule())
+                    }
+                    .padding(.vertical, 4)
+
+                    Divider()
+
                     Toggle(isOn: Binding(
                         get: { allTargetsSelected },
                         set: { selectAll in
-                            let syncable = availableSyncTargets.filter { $0 != command.sourceService }
-                            selectedSyncServices = selectAll ? Set(syncable) : []
+                            selectedSyncServices = selectAll ? Set(syncableTargets) : []
                         })
                     ) {
-                        Label("Sync to all installed", systemImage: "checklist")
+                        Label("Sync to all other services", systemImage: "checklist")
                     }
 
-                    ForEach(availableSyncTargets, id: \.self) { service in
-                        let isSource = service == command.sourceService
+                    ForEach(syncableTargets, id: \.self) { service in
                         Toggle(isOn: Binding(
-                            get: {
-                                if isSource { return true }
-                                return selectedSyncServices.contains(service)
-                            },
+                            get: { selectedSyncServices.contains(service) },
                             set: { isOn in
-                                guard !isSource else { return }
                                 if isOn {
                                     selectedSyncServices.insert(service)
                                 } else {
@@ -153,13 +193,12 @@ struct CommandEditorView: View {
                                     .foregroundStyle(service.color)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(service.displayName)
-                                    Text(isSource ? "Source service" : service.userCommandsPath)
+                                    Text(service.userCommandsPath)
                                         .font(.caption2)
-                                        .foregroundStyle(.tertiary)
+                                        .foregroundStyle(.secondary)
                                 }
                             }
                         }
-                        .disabled(isSource)
                     }
 
                     Button {
@@ -202,12 +241,21 @@ struct CommandEditorView: View {
                     .font(.system(.body, design: .monospaced))
                     .frame(minHeight: 250)
                     .scrollContentBackground(.hidden)
+                    .overlay(alignment: .topLeading) {
+                        if editedContent.isEmpty {
+                            Text("Enter your command prompt here...")
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 8)
+                                .padding(.leading, 4)
+                                .allowsHitTesting(false)
+                        }
+                    }
             } header: {
                 Text("Content")
             } footer: {
                 Text("The actual prompt/instructions that will be sent to the AI")
                     .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Info") {
@@ -227,12 +275,12 @@ struct CommandEditorView: View {
                             HStack {
                                 Text(abbreviatedPath(path))
                                     .font(.system(.caption, design: .monospaced))
-                                    .foregroundStyle(.tertiary)
+                                    .foregroundStyle(.secondary)
                                     .lineLimit(2)
                                     .multilineTextAlignment(.trailing)
                                 Image(systemName: "arrow.up.forward.square")
                                     .font(.caption2)
-                                    .foregroundStyle(.tertiary)
+                                    .foregroundStyle(.secondary)
                             }
                         }
                         .buttonStyle(.plain)
@@ -244,7 +292,10 @@ struct CommandEditorView: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle(command.name + (hasUnsavedChanges ? " •" : ""))
+        .navigationTitle(editedName + (hasUnsavedChanges ? " *" : ""))
+        .onChange(of: hasUnsavedChanges) { _, newValue in
+            onUnsavedChangesChanged?(newValue)
+        }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 if hasUnsavedChanges {
@@ -265,9 +316,9 @@ struct CommandEditorView: View {
                         Label("Save", systemImage: "square.and.arrow.down")
                     }
                 }
-                .disabled(isSaving || !hasUnsavedChanges)
+                .disabled(isSaving || !hasUnsavedChanges || !isNameValid)
                 .keyboardShortcut("s", modifiers: .command)
-                .help("Save changes to this command (⌘S)")
+                .help("Save changes to this command (Cmd+S)")
 
                 Button(role: .destructive) {
                     showDeleteConfirmation = true
@@ -277,6 +328,7 @@ struct CommandEditorView: View {
                             .controlSize(.small)
                     } else {
                         Label("Delete", systemImage: "trash")
+                            .foregroundStyle(.red)
                     }
                 }
                 .disabled(isSaving || isDeleting)
@@ -327,6 +379,7 @@ struct CommandEditorView: View {
         withAnimation {
             editedContent = baselineCommand.content
             editedDescription = baselineCommand.description
+            editedName = baselineCommand.name
         }
         appState.showInfo("Changes reverted")
     }
@@ -334,9 +387,12 @@ struct CommandEditorView: View {
     private func saveCommand() async {
         isSaving = true
 
+        let isRename = editedName != command.name
+
         var updatedCommand = command
         updatedCommand.content = editedContent
         updatedCommand.description = editedDescription
+        updatedCommand.name = editedName
 
         do {
             // Backup before saving
@@ -344,12 +400,30 @@ struct CommandEditorView: View {
                 try BackupManager.shared.backupFile(at: URL(fileURLWithPath: filePath))
             }
 
-            try await commandStore.updateCommand(updatedCommand)
-            appState.showSuccess("Command saved")
-            baselineCommand = updatedCommand
-            editedContent = updatedCommand.content
-            editedDescription = updatedCommand.description
-            onUpdate?(updatedCommand)
+            if isRename {
+                // For rename: delete old file and create new one
+                try await commandStore.renameCommand(command, to: editedName)
+                // Reload to get the updated command with new file path
+                await commandStore.loadAllCommands()
+                if let refreshed = commandStore.commands.first(where: {
+                    $0.name == editedName && $0.sourceService == command.sourceService
+                }) {
+                    baselineCommand = refreshed
+                    editedContent = refreshed.content
+                    editedDescription = refreshed.description
+                    editedName = refreshed.name
+                    onUpdate?(refreshed)
+                }
+                appState.showSuccess("Command renamed and saved")
+            } else {
+                try await commandStore.updateCommand(updatedCommand)
+                appState.showSuccess("Command saved")
+                baselineCommand = updatedCommand
+                editedContent = updatedCommand.content
+                editedDescription = updatedCommand.description
+                editedName = updatedCommand.name
+                onUpdate?(updatedCommand)
+            }
         } catch {
             appState.showErrorAlert(
                 title: "Save Failed",
@@ -409,23 +483,34 @@ struct CommandEditorView: View {
         isDeleting = false
     }
 
-    private var availableSyncTargets: [Service] {
+    private var syncableTargets: [Service] {
         serviceDetector.installedServices
+            .filter { $0 != command.sourceService }
             .sorted { $0.displayName < $1.displayName }
     }
 
     private var allTargetsSelected: Bool {
-        let syncable = availableSyncTargets.filter { $0 != command.sourceService }
-        return !syncable.isEmpty && selectedSyncServices.count == syncable.count
+        !syncableTargets.isEmpty && selectedSyncServices.count == syncableTargets.count
     }
 }
 
 struct EmptyEditorView: View {
+    var onCreateCommand: (() -> Void)?
+
     var body: some View {
         ContentUnavailableView {
             Label("Select a Command", systemImage: "terminal")
         } description: {
             Text("Choose a command from the list to view or edit")
+        } actions: {
+            if let onCreateCommand = onCreateCommand {
+                Button {
+                    onCreateCommand()
+                } label: {
+                    Label("Create New Command", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
+            }
         }
     }
 }

@@ -5,14 +5,43 @@
 
 import SwiftUI
 
+// Enum to represent sidebar selection options
+enum SidebarSelection: Hashable {
+    case allServices
+    case service(Service)
+}
+
 struct SidebarView: View {
     @Binding var selectedService: Service?
     @Binding var selectedScope: CommandScope
     let serviceDetector: ServiceDetector
     let commandStore: CommandStore
 
+    private var sidebarSelection: Binding<SidebarSelection?> {
+        Binding(
+            get: {
+                if let service = selectedService {
+                    return .service(service)
+                }
+                return .allServices
+            },
+            set: { newValue in
+                switch newValue {
+                case .allServices:
+                    selectedService = nil
+                case .service(let service):
+                    if serviceDetector.isInstalled(service) {
+                        selectedService = service
+                    }
+                case nil:
+                    break
+                }
+            }
+        )
+    }
+
     var body: some View {
-        List {
+        List(selection: sidebarSelection) {
             // Scope Toggle
             Section {
                 Picker("", selection: $selectedScope) {
@@ -37,10 +66,7 @@ struct SidebarView: View {
                     isSelected: selectedService == nil,
                     isEnabled: true
                 )
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    selectedService = nil
-                }
+                .tag(SidebarSelection.allServices)
             }
 
             // Services
@@ -55,12 +81,8 @@ struct SidebarView: View {
                         isSelected: selectedService == service,
                         isEnabled: isInstalled
                     )
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        if isInstalled {
-                            selectedService = service
-                        }
-                    }
+                    .tag(SidebarSelection.service(service))
+                    .disabled(!isInstalled)
                 }
             }
         }

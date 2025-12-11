@@ -15,6 +15,9 @@ struct ContentView: View {
     @State private var showingNewCommand = false
     @State private var isLoading = false
     @State private var didResizeWindow = false
+    @State private var pendingCommand: SlasheyCommand?
+    @State private var showUnsavedChangesAlert = false
+    @State private var editorHasUnsavedChanges = false
 
     let serviceDetector: ServiceDetector
     let commandStore: CommandStore
@@ -34,7 +37,17 @@ struct ContentView: View {
             CommandListView(
                 service: selectedService,
                 scope: selectedScope,
-                selectedCommand: $selectedCommand,
+                selectedCommand: Binding(
+                    get: { selectedCommand },
+                    set: { newCommand in
+                        if editorHasUnsavedChanges && selectedCommand != nil && newCommand?.id != selectedCommand?.id {
+                            pendingCommand = newCommand
+                            showUnsavedChangesAlert = true
+                        } else {
+                            selectedCommand = newCommand
+                        }
+                    }
+                ),
                 searchText: $searchText,
                 commandStore: commandStore,
                 installedServices: serviceDetector.installedServices,
@@ -49,7 +62,10 @@ struct ContentView: View {
                     commandStore: commandStore,
                     syncEngine: syncEngine,
                     serviceDetector: serviceDetector,
-                    appState: appState
+                    appState: appState,
+                    onUnsavedChangesChanged: { hasChanges in
+                        editorHasUnsavedChanges = hasChanges
+                    }
                 ) { updatedCommand in
                     selectedCommand = updatedCommand
                 } onDelete: { deletedCommand in
@@ -59,7 +75,7 @@ struct ContentView: View {
                 }
                 .id(command.id)
             } else {
-                EmptyEditorView()
+                EmptyEditorView(onCreateCommand: { showingNewCommand = true })
             }
         }
         .searchable(text: $searchText, prompt: "Search commands")
@@ -89,6 +105,26 @@ struct ContentView: View {
             ToolbarItem(placement: .automatic) {
                 SyncStatusIndicator(syncEngine: syncEngine)
             }
+
+            ToolbarItem(placement: .automatic) {
+                Button {
+                    showingSettings = true
+                } label: {
+                    Label("Settings", systemImage: "gear")
+                }
+            }
+        }
+        .alert("Unsaved Changes", isPresented: $showUnsavedChangesAlert) {
+            Button("Discard", role: .destructive) {
+                editorHasUnsavedChanges = false
+                selectedCommand = pendingCommand
+                pendingCommand = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingCommand = nil
+            }
+        } message: {
+            Text("You have unsaved changes. Discard them?")
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView(
