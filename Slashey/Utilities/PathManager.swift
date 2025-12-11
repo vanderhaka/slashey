@@ -35,6 +35,14 @@ struct PathManager {
         homeDirectory.appendingPathComponent("Library/Application Support/Cursor")
     }
 
+    var cursorConfigPath: URL {
+        homeDirectory.appendingPathComponent(".cursor")
+    }
+
+    var cursorUserCommandsPath: URL {
+        homeDirectory.appendingPathComponent(".cursor/commands")
+    }
+
     func cursorProjectRulesPath(for projectPath: URL) -> URL {
         projectPath.appendingPathComponent(".cursor/rules")
     }

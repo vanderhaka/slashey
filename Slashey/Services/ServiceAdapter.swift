@@ -123,9 +123,18 @@ final class CursorAdapter: ServiceAdapter {
     private let fileManager = FileManager.default
 
     func loadUserCommands() async throws -> [SlasheyCommand] {
-        // Cursor user rules are in SQLite - not easily accessible
-        // We return empty for now
-        return []
+        let path = pathManager.cursorUserCommandsPath
+        guard pathManager.exists(path) else { return [] }
+
+        var commands: [SlasheyCommand] = []
+        let contents = try fileManager.contentsOfDirectory(at: path, includingPropertiesForKeys: [.contentModificationDateKey])
+
+        for fileURL in contents where fileURL.pathExtension == "md" || fileURL.pathExtension == "mdc" {
+            let command = try parseCursorFile(at: fileURL, scope: .user, projectPath: nil)
+            commands.append(command)
+        }
+
+        return commands
     }
 
     func loadProjectCommands(from project: URL) async throws -> [SlasheyCommand] {
@@ -212,14 +221,20 @@ final class CursorAdapter: ServiceAdapter {
     }
 
     func saveCommand(_ command: SlasheyCommand) async throws {
-        guard let projectPath = command.projectPath else {
-            throw NSError(domain: "Slashey", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cursor only supports project-level rules via files"])
+        let directory: URL
+        let fileExtension: String
+
+        if command.scope == .project, let projectPath = command.projectPath {
+            directory = pathManager.cursorProjectRulesPath(for: URL(fileURLWithPath: projectPath))
+            fileExtension = "mdc"
+        } else {
+            directory = pathManager.cursorUserCommandsPath
+            fileExtension = "md"
         }
 
-        let directory = pathManager.cursorProjectRulesPath(for: URL(fileURLWithPath: projectPath))
         try pathManager.createDirectoryIfNeeded(directory)
 
-        let fileURL = directory.appendingPathComponent("\(command.name).mdc")
+        let fileURL = directory.appendingPathComponent("\(command.name).\(fileExtension)")
 
         var output = "---\n"
         output += "description: \(command.description)\n"

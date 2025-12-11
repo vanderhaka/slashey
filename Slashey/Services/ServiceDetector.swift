@@ -65,7 +65,8 @@ final class ServiceDetector {
 
     private func checkCursorInstalled() -> Bool {
         pathManager.exists(pathManager.cursorAppPath) ||
-        pathManager.exists(pathManager.cursorSupportPath)
+        pathManager.exists(pathManager.cursorSupportPath) ||
+        pathManager.exists(pathManager.cursorConfigPath)
     }
 
     private func checkWindsurfInstalled() -> Bool {
@@ -84,9 +85,8 @@ final class ServiceDetector {
                 userPath = pathManager.claudeCodeUserCommandsPath
                 count = countCommands(at: userPath, extension: "md")
             case .cursor:
-                // Cursor user rules are in SQLite, we show 0 for now
-                userPath = nil
-                count = 0
+                userPath = pathManager.cursorUserCommandsPath
+                count = countCommands(at: userPath, extension: "md")
             case .windsurf:
                 userPath = pathManager.windsurfUserRulesPath
                 count = pathManager.exists(pathManager.windsurfUserRulesPath) ? 1 : 0
