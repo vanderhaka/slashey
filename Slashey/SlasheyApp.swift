@@ -49,7 +49,7 @@ struct SlasheyApp: App {
         }
         .windowStyle(.automatic)
         .windowResizability(.contentMinSize)
-        .defaultSize(width: 1000, height: 600)
+        .defaultSize(width: 1400, height: 850)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Command") {

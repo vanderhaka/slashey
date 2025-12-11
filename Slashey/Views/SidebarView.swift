@@ -12,7 +12,7 @@ struct SidebarView: View {
     let commandStore: CommandStore
 
     var body: some View {
-        List(selection: $selectedService) {
+        List {
             // Scope Toggle
             Section {
                 Picker("", selection: $selectedScope) {
@@ -29,30 +29,38 @@ struct SidebarView: View {
 
             // All Commands option
             Section {
-                Label {
-                    HStack {
-                        Text("All Services")
-                        Spacer()
-                        Text("\(commandStore.commands(for: nil, scope: selectedScope).count)")
-                            .foregroundStyle(.secondary)
-                            .font(.caption)
-                    }
-                } icon: {
-                    Image(systemName: "square.stack.3d.up")
-                        .foregroundStyle(.purple)
+                SidebarRow(
+                    title: "All Services",
+                    icon: "square.stack.3d.up",
+                    iconColor: .purple,
+                    count: commandStore.commands(for: nil, scope: selectedScope).count,
+                    isSelected: selectedService == nil,
+                    isEnabled: true
+                )
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    selectedService = nil
                 }
-                .tag(nil as Service?)
             }
 
             // Services
             Section("Services") {
                 ForEach(Service.allCases) { service in
-                    ServiceRowView(
-                        service: service,
-                        isInstalled: serviceDetector.isInstalled(service),
-                        commandCount: commandStore.commands(for: service, scope: selectedScope).count
+                    let isInstalled = serviceDetector.isInstalled(service)
+                    SidebarRow(
+                        title: service.displayName,
+                        icon: service.iconName,
+                        iconColor: service.color,
+                        count: commandStore.commands(for: service, scope: selectedScope).count,
+                        isSelected: selectedService == service,
+                        isEnabled: isInstalled
                     )
-                    .tag(service as Service?)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if isInstalled {
+                            selectedService = service
+                        }
+                    }
                 }
             }
         }
@@ -61,32 +69,45 @@ struct SidebarView: View {
     }
 }
 
-struct ServiceRowView: View {
-    let service: Service
-    let isInstalled: Bool
-    let commandCount: Int
+struct SidebarRow: View {
+    let title: String
+    let icon: String
+    let iconColor: Color
+    let count: Int
+    let isSelected: Bool
+    let isEnabled: Bool
 
     var body: some View {
-        Label {
-            HStack {
-                Text(service.displayName)
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .foregroundStyle(isEnabled ? iconColor : .secondary)
+                .frame(width: 20)
 
-                Spacer()
+            Text(title)
+                .foregroundStyle(isEnabled ? .primary : .secondary)
 
-                if isInstalled {
-                    Text("\(commandCount)")
-                        .foregroundStyle(.secondary)
-                        .font(.caption)
-                } else {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.tertiary)
-                        .font(.caption)
-                }
+            Spacer()
+
+            if isEnabled {
+                Text("\(count)")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+            } else {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.tertiary)
+                    .font(.caption)
             }
-        } icon: {
-            Image(systemName: service.iconName)
-                .foregroundStyle(service.color)
         }
-        .opacity(isInstalled ? 1 : 0.5)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isSelected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1.5)
+        )
+        .opacity(isEnabled ? 1 : 0.5)
     }
 }
