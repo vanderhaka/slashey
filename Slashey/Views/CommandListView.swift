@@ -187,10 +187,10 @@ struct CommandRowView: View {
     @ViewBuilder
     private var serviceBadges: some View {
         if isFullyCovered {
-            // All services - green checkmark
+            // All services - green "All" badge
             HStack(spacing: 4) {
                 Image(systemName: "checkmark.circle.fill")
-                Text("All services")
+                Text("All")
             }
             .font(.caption2)
             .padding(.horizontal, 6)
@@ -198,28 +198,14 @@ struct CommandRowView: View {
             .background(Color.green.opacity(0.15))
             .foregroundStyle(.green)
             .clipShape(Capsule())
-            .help("Available in all installed services: \(allServices.map { $0.displayName }.joined(separator: ", "))")
-        } else if allServices.count == 1 {
-            // Single service - show service badge
-            ServiceBadge(service: allServices[0])
+            .help("Available in all installed services")
         } else {
-            // Multiple services - show count
+            // Show each service as a full badge (icon + name)
             HStack(spacing: 4) {
-                ForEach(allServices.prefix(2), id: \.self) { service in
-                    Image(systemName: service.iconName)
-                        .foregroundStyle(service.color)
-                }
-                if allServices.count > 2 {
-                    Text("+\(allServices.count - 2)")
-                        .foregroundStyle(.secondary)
+                ForEach(allServices, id: \.self) { service in
+                    ServiceBadge(service: service)
                 }
             }
-            .font(.caption2)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Color.secondary.opacity(0.1))
-            .clipShape(Capsule())
-            .help("Available in: \(allServices.map { $0.displayName }.joined(separator: ", "))")
         }
     }
 
