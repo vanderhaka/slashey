@@ -34,59 +34,97 @@ struct CommandEditorView: View {
     var body: some View {
         Form {
             Section("Details") {
-                LabeledContent("Name") {
+                LabeledContent {
                     Text(command.name)
                         .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                } label: {
+                    Text("Name")
                 }
+                .help("The command's filename (without extension). Used to invoke the command with /\(command.name)")
 
-                LabeledContent("Service") {
+                LabeledContent {
                     ServiceBadge(service: command.sourceService)
+                } label: {
+                    Text("Service")
                 }
+                .help("The AI coding tool where this command is stored")
 
-                LabeledContent("Description") {
-                    TextField("Description", text: $editedDescription)
-                        .textFieldStyle(.plain)
-                        .foregroundStyle(.primary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Description")
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+
+                    TextEditor(text: $editedDescription)
+                        .font(.body)
+                        .frame(minHeight: 60, maxHeight: 100)
+                        .scrollContentBackground(.hidden)
+                        .padding(8)
+                        .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
+                        .cornerRadius(6)
                 }
+                .help("A brief description of what this command does. Used by AI to decide when to apply the command automatically.")
 
-                LabeledContent("Scope") {
+                LabeledContent {
                     Label(command.scope.displayName, systemImage: command.scope.icon)
                         .foregroundStyle(.secondary)
+                } label: {
+                    Text("Scope")
                 }
+                .help(scopeTooltip)
 
-                LabeledContent("Activation") {
+                LabeledContent {
                     Text(command.activationMode.displayName)
                         .foregroundStyle(.secondary)
+                } label: {
+                    Text("Activation")
                 }
+                .help(activationTooltip)
 
                 if let globs = command.globs, !globs.isEmpty {
-                    LabeledContent("File Patterns") {
-                        VStack(alignment: .trailing) {
+                    LabeledContent {
+                        VStack(alignment: .trailing, spacing: 4) {
                             ForEach(globs, id: \.self) { glob in
                                 Text(glob)
                                     .font(.system(.caption, design: .monospaced))
                                     .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.secondary.opacity(0.1))
+                                    .cornerRadius(4)
                             }
                         }
+                    } label: {
+                        Text("File Patterns")
                     }
+                    .help("Glob patterns that trigger this command. When files matching these patterns are open, the command may be automatically included.")
                 }
             }
 
-            Section("Content") {
+            Section {
                 TextEditor(text: $editedContent)
                     .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 200)
+                    .frame(minHeight: 250)
                     .scrollContentBackground(.hidden)
+            } header: {
+                Text("Content")
+            } footer: {
+                Text("The actual prompt/instructions that will be sent to the AI")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
             }
 
             Section("Info") {
-                LabeledContent("Last Modified") {
+                LabeledContent {
                     Text(command.lastModified, style: .relative)
                         .foregroundStyle(.secondary)
+                } label: {
+                    Text("Last Modified")
                 }
+                .help("When this command file was last changed")
 
                 if let path = command.filePath {
-                    LabeledContent("File") {
+                    LabeledContent {
                         Button {
                             NSWorkspace.shared.selectFile(path, inFileViewerRootedAtPath: "")
                         } label: {
@@ -94,15 +132,18 @@ struct CommandEditorView: View {
                                 Text(abbreviatedPath(path))
                                     .font(.system(.caption, design: .monospaced))
                                     .foregroundStyle(.tertiary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.trailing)
                                 Image(systemName: "arrow.up.forward.square")
                                     .font(.caption2)
                                     .foregroundStyle(.tertiary)
                             }
                         }
                         .buttonStyle(.plain)
+                    } label: {
+                        Text("File")
                     }
+                    .help("Click to reveal this file in Finder. Path: \(path)")
                 }
             }
 
@@ -113,6 +154,7 @@ struct CommandEditorView: View {
                     Label("Sync to Other Services...", systemImage: "arrow.triangle.2.circlepath")
                 }
                 .disabled(!serviceDetector.installedServices.contains(where: { $0 != command.sourceService }))
+                .help("Copy this command to other AI coding tools (Cursor, Claude Code, or Windsurf)")
             }
         }
         .formStyle(.grouped)
@@ -124,6 +166,7 @@ struct CommandEditorView: View {
                         revertChanges()
                     }
                     .foregroundStyle(.secondary)
+                    .help("Discard all unsaved changes")
                 }
 
                 Button {
@@ -138,6 +181,7 @@ struct CommandEditorView: View {
                 }
                 .disabled(isSaving || !hasUnsavedChanges)
                 .keyboardShortcut("s", modifiers: .command)
+                .help("Save changes to this command (⌘S)")
             }
         }
         .sheet(isPresented: $showingSyncSheet) {
@@ -147,6 +191,28 @@ struct CommandEditorView: View {
                 serviceDetector: serviceDetector,
                 appState: appState
             )
+        }
+    }
+
+    private var scopeTooltip: String {
+        switch command.scope {
+        case .user:
+            return "User scope: This command is available globally across all your projects"
+        case .project:
+            return "Project scope: This command is only available within a specific project folder"
+        }
+    }
+
+    private var activationTooltip: String {
+        switch command.activationMode {
+        case .always:
+            return "Always: This command is automatically included in every conversation"
+        case .manual:
+            return "Manual: Invoke this command explicitly with /\(command.name)"
+        case .autoAttach:
+            return "Auto-attach: Automatically included when files matching the patterns are open"
+        case .modelDecision:
+            return "AI Decides: The AI model decides when to use this command based on its description"
         }
     }
 
@@ -299,7 +365,6 @@ struct SyncSheet: View {
     }
 
     private func servicePath(for service: Service) -> String {
-        let pm = PathManager.shared
         switch service {
         case .claudeCode:
             return "~/.claude/commands/"
