@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 struct ContentView: View {
     @State private var selectedService: Service?
@@ -13,6 +14,7 @@ struct ContentView: View {
     @State private var showingSettings = false
     @State private var showingNewCommand = false
     @State private var isLoading = false
+    @State private var didResizeWindow = false
 
     let serviceDetector: ServiceDetector
     let commandStore: CommandStore
@@ -35,6 +37,7 @@ struct ContentView: View {
                 selectedCommand: $selectedCommand,
                 searchText: $searchText,
                 commandStore: commandStore,
+                installedServices: serviceDetector.installedServices,
                 isLoading: isLoading,
                 onCreateCommand: { showingNewCommand = true }
             )
@@ -47,7 +50,13 @@ struct ContentView: View {
                     syncEngine: syncEngine,
                     serviceDetector: serviceDetector,
                     appState: appState
-                )
+                ) { updatedCommand in
+                    selectedCommand = updatedCommand
+                } onDelete: { deletedCommand in
+                    if selectedCommand?.id == deletedCommand.id {
+                        selectedCommand = nil
+                    }
+                }
                 .id(command.id)
             } else {
                 EmptyEditorView()
@@ -101,6 +110,19 @@ struct ContentView: View {
         } message: {
             Text(appState.alertMessage)
         }
+        .background(
+            WindowAccessor { window in
+                guard !didResizeWindow, let window else { return }
+                didResizeWindow = true
+
+                guard let screen = window.screen ?? NSScreen.main else {
+                    // No screen available; skip resize
+                    return
+                }
+                let targetFrame = screen.visibleFrame
+                window.setFrame(targetFrame, display: true, animate: true)
+            }
+        )
         .task {
             await refreshCommands()
         }
@@ -116,6 +138,23 @@ struct ContentView: View {
         } else {
             appState.showInfo("Loaded \(commandStore.commands.count) commands")
         }
+    }
+}
+
+// Bridges SwiftUI view tree to the NSWindow so we can request fullscreen on launch.
+private struct WindowAccessor: NSViewRepresentable {
+    let onResolve: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { onResolve(view.window) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        // Intentionally empty - onResolve is called once in makeNSView.
+        // Calling it here on every SwiftUI update causes unnecessary async dispatches
+        // and potential race conditions with the didResizeWindow guard.
     }
 }
 
@@ -162,7 +201,14 @@ struct NewCommandSheet: View {
     }
 
     var isValid: Bool {
-        !name.isEmpty && name.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+        guard !name.isEmpty else { return false }
+        // All characters must be letters, numbers, dashes, or underscores
+        guard name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { return false }
+        // Name must start and end with a letter or number (not dash or underscore)
+        guard let first = name.first, let last = name.last,
+              (first.isLetter || first.isNumber),
+              (last.isLetter || last.isNumber) else { return false }
+        return true
     }
 
     var body: some View {
@@ -191,7 +237,7 @@ struct NewCommandSheet: View {
                         .textFieldStyle(.roundedBorder)
 
                     if !name.isEmpty && !isValid {
-                        Label("Name can only contain letters, numbers, dashes, and underscores", systemImage: "exclamationmark.triangle.fill")
+                        Label("Name must start and end with a letter or number, and contain only letters, numbers, dashes, or underscores", systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
                             .foregroundStyle(.orange)
                     }

@@ -20,8 +20,16 @@ final class CommandStore {
 
     private let serviceDetector: ServiceDetector
 
+    /// Cache for syncedServices lookups to avoid O(n^2) performance when rendering lists
+    private var syncedServicesCache: [String: [Service]] = [:]
+
     init(serviceDetector: ServiceDetector) {
         self.serviceDetector = serviceDetector
+    }
+
+    /// Invalidates the synced services cache. Call after any mutation to commands array.
+    private func invalidateSyncedServicesCache() {
+        syncedServicesCache.removeAll()
     }
 
     // MARK: - Loading
@@ -45,6 +53,7 @@ final class CommandStore {
         }
 
         commands = allCommands
+        invalidateSyncedServicesCache()
         isLoading = false
     }
 
@@ -59,6 +68,9 @@ final class CommandStore {
                 let existingIds = Set(commands.map { $0.id })
                 let newCommands = projectCommands.filter { !existingIds.contains($0.id) }
                 commands.append(contentsOf: newCommands)
+                if !newCommands.isEmpty {
+                    invalidateSyncedServicesCache()
+                }
             } catch {
                 print("Error loading \(service) project commands: \(error)")
             }
@@ -94,6 +106,7 @@ final class CommandStore {
 
         try await adapter.saveCommand(command)
         commands.append(command)
+        invalidateSyncedServicesCache()
     }
 
     func updateCommand(_ command: SlasheyCommand) async throws {
@@ -101,11 +114,13 @@ final class CommandStore {
             throw NSError(domain: "Slashey", code: 2, userInfo: [NSLocalizedDescriptionKey: "No adapter for service"])
         }
 
-        try await adapter.saveCommand(command)
-
-        if let index = commands.firstIndex(where: { $0.id == command.id }) {
-            commands[index] = command
+        guard let index = commands.firstIndex(where: { $0.id == command.id }) else {
+            throw NSError(domain: "Slashey", code: 3, userInfo: [NSLocalizedDescriptionKey: "Command not found in local store"])
         }
+
+        try await adapter.saveCommand(command)
+        commands[index] = command
+        invalidateSyncedServicesCache()
     }
 
     func deleteCommand(_ command: SlasheyCommand) async throws {
@@ -115,6 +130,36 @@ final class CommandStore {
 
         try await adapter.deleteCommand(command)
         commands.removeAll { $0.id == command.id }
+        invalidateSyncedServicesCache()
+    }
+
+    // MARK: - Helpers
+
+    func syncedServices(for command: SlasheyCommand) -> [Service] {
+        // Use cache key based on command identity
+        let cacheKey = "\(command.id.uuidString)-\(command.sourceService.rawValue)"
+
+        if let cached = syncedServicesCache[cacheKey] {
+            return cached
+        }
+
+        let matches = commands.compactMap { other -> Service? in
+            guard other.id != command.id,
+                  other.name == command.name,
+                  other.scope == command.scope,
+                  other.namespace == command.namespace,
+                  other.sourceService != command.sourceService else { return nil }
+
+            if command.scope == .project && other.projectPath != command.projectPath {
+                return nil
+            }
+
+            return other.sourceService
+        }
+
+        let result = Array(Set(matches)).sorted { $0.displayName < $1.displayName }
+        syncedServicesCache[cacheKey] = result
+        return result
     }
 
     // MARK: - Sync
@@ -127,7 +172,23 @@ final class CommandStore {
             convertedCommand.sourceService = targetService
 
             try await adapter.saveCommand(convertedCommand)
+
+            // Update in-memory list so UI reflects new/updated copies immediately
+            if let existingIndex = commands.firstIndex(where: {
+                $0.name == convertedCommand.name &&
+                $0.scope == convertedCommand.scope &&
+                $0.namespace == convertedCommand.namespace &&
+                $0.sourceService == targetService &&
+                (convertedCommand.scope != .project || $0.projectPath == convertedCommand.projectPath)
+            }) {
+                // Update existing synced copy with new content
+                commands[existingIndex] = convertedCommand
+            } else {
+                // Append new synced copy
+                commands.append(convertedCommand)
+            }
         }
+        invalidateSyncedServicesCache()
     }
 
     func syncAllToService(_ targetService: Service, from sourceService: Service) async throws {

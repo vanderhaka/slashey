@@ -11,6 +11,7 @@ struct CommandListView: View {
     @Binding var selectedCommand: SlasheyCommand?
     @Binding var searchText: String
     let commandStore: CommandStore
+    let installedServices: Set<Service>
     var isLoading: Bool = false
     var onCreateCommand: (() -> Void)?
 
@@ -41,7 +42,12 @@ struct CommandListView: View {
             } else {
                 List(selection: $selectedCommand) {
                     ForEach(filteredCommands) { command in
-                        CommandRowView(command: command, showService: service == nil)
+                        CommandRowView(
+                            command: command,
+                            showService: service == nil,
+                            linkedServices: commandStore.syncedServices(for: command),
+                            installedServices: installedServices
+                        )
                             .tag(command)
                     }
                 }
@@ -49,6 +55,13 @@ struct CommandListView: View {
             }
         }
         .navigationTitle(navigationTitle)
+        .onChange(of: filteredCommands) { _, newCommands in
+            // Clear selection if the selected command is no longer in the filtered list
+            if let selected = selectedCommand,
+               !newCommands.contains(where: { $0.id == selected.id }) {
+                selectedCommand = nil
+            }
+        }
     }
 
     @ViewBuilder
@@ -110,6 +123,8 @@ struct CommandListView: View {
 struct CommandRowView: View {
     let command: SlasheyCommand
     var showService: Bool = false
+    let linkedServices: [Service]
+    let installedServices: Set<Service>
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -121,6 +136,10 @@ struct CommandRowView: View {
 
                 if showService {
                     ServiceBadge(service: command.sourceService)
+                }
+
+                if !linkedServices.isEmpty {
+                    syncCoverageBadge
                 }
             }
 
@@ -144,6 +163,29 @@ struct CommandRowView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private var syncCoverageBadge: some View {
+        let text: String
+        if isFullySynced {
+            text = "All services"
+        } else {
+            text = linkedServices.map { $0.displayName }.joined(separator: ", ")
+        }
+
+        return Label(text, systemImage: "arrow.triangle.2.circlepath")
+            .font(.caption2)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.secondary.opacity(0.15))
+            .foregroundStyle(.secondary)
+            .clipShape(Capsule())
+            .help(isFullySynced ? "Synced to every installed service" : "Also synced to: \(text)")
+    }
+
+    private var isFullySynced: Bool {
+        let coverage = Set(linkedServices).union([command.sourceService])
+        return !installedServices.isEmpty && coverage == installedServices
     }
 
     private var activationIcon: String {
