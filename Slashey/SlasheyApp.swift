@@ -33,7 +33,10 @@ struct SlasheyApp: App {
                 appState: appState
             )
             .sheet(isPresented: $showOnboarding) {
-                OnboardingView(serviceDetector: serviceDetector) {
+                OnboardingView(
+                    serviceDetector: serviceDetector,
+                    syncEngine: syncEngine
+                ) {
                     hasCompletedOnboarding = true
                     showOnboarding = false
                 }

@@ -7,6 +7,7 @@ import SwiftUI
 
 struct OnboardingView: View {
     let serviceDetector: ServiceDetector
+    let syncEngine: SyncEngine
     let onComplete: () -> Void
 
     @State private var currentPage = 0
@@ -18,13 +19,16 @@ struct OnboardingView: View {
                 WelcomePage()
                     .tag(0)
 
-                ServicesPage(serviceDetector: serviceDetector)
-                    .tag(1)
+                ServicesPage(
+                    serviceDetector: serviceDetector,
+                    syncEngine: syncEngine
+                )
+                .tag(1)
 
                 HowItWorksPage()
                     .tag(2)
 
-                ReadyPage()
+                ReadyPage(enabledCount: syncEngine.enabledServices.count)
                     .tag(3)
             }
             .tabViewStyle(.automatic)
@@ -70,7 +74,7 @@ struct OnboardingView: View {
             }
             .padding()
         }
-        .frame(width: 540, height: 440)
+        .frame(width: 540, height: 480)
     }
 }
 
@@ -106,60 +110,109 @@ struct WelcomePage: View {
 
 struct ServicesPage: View {
     let serviceDetector: ServiceDetector
+    @Bindable var syncEngine: SyncEngine
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 20) {
             Spacer()
 
-            Text("Detected Services")
-                .font(.title2)
-                .fontWeight(.semibold)
+            VStack(spacing: 4) {
+                Text("Choose Your Services")
+                    .font(.title2)
+                    .fontWeight(.semibold)
 
-            VStack(spacing: 12) {
+                Text("Select which services to include in sync")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(spacing: 10) {
                 ForEach(Service.allCases) { service in
-                    HStack(spacing: 16) {
-                        Image(systemName: service.iconName)
-                            .font(.title)
-                            .foregroundStyle(service.color)
-                            .frame(width: 40)
-
-                        VStack(alignment: .leading) {
-                            Text(service.displayName)
-                                .font(.headline)
-
-                            Text(servicePath(for: service))
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
+                    ServiceToggleRow(
+                        service: service,
+                        isInstalled: serviceDetector.isInstalled(service),
+                        isEnabled: syncEngine.enabledServices.contains(service),
+                        onToggle: { enabled in
+                            syncEngine.toggleService(service, enabled: enabled)
                         }
-
-                        Spacer()
-
-                        if serviceDetector.isInstalled(service) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                                .font(.title2)
-                        } else {
-                            Text("Not found")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding()
-                    .background(.quaternary.opacity(0.5))
-                    .cornerRadius(10)
+                    )
                 }
             }
             .padding(.horizontal, 40)
 
-            if serviceDetector.installedServices.count < 2 {
-                Label("Install at least 2 services to sync commands between them", systemImage: "info.circle")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+            // Status message
+            Group {
+                if syncEngine.enabledServices.count == 0 {
+                    Label("Enable at least one service to continue", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                } else if syncEngine.enabledServices.count == 1 {
+                    Label("Enable 2+ services to sync between them", systemImage: "info.circle")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Label("\(syncEngine.enabledServices.count) services enabled for sync", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                }
             }
+            .font(.caption)
 
             Spacer()
         }
         .padding()
+    }
+}
+
+struct ServiceToggleRow: View {
+    let service: Service
+    let isInstalled: Bool
+    let isEnabled: Bool
+    let onToggle: (Bool) -> Void
+
+    var body: some View {
+        HStack(spacing: 16) {
+            // Service icon
+            Image(systemName: service.iconName)
+                .font(.title2)
+                .foregroundStyle(isEnabled ? service.color : .secondary)
+                .frame(width: 32)
+
+            // Service info
+            VStack(alignment: .leading, spacing: 2) {
+                Text(service.displayName)
+                    .font(.headline)
+                    .foregroundStyle(isEnabled ? .primary : .secondary)
+
+                Text(servicePath(for: service))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Spacer()
+
+            // Status / Toggle
+            if isInstalled {
+                Toggle("", isOn: Binding(
+                    get: { isEnabled },
+                    set: { onToggle($0) }
+                ))
+                .toggleStyle(.switch)
+                .labelsHidden()
+            } else {
+                Text("Not installed")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.quaternary)
+                    .cornerRadius(4)
+            }
+        }
+        .padding()
+        .background(isEnabled ? service.color.opacity(0.08) : Color.secondary.opacity(0.05))
+        .cornerRadius(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(isEnabled ? service.color.opacity(0.3) : Color.clear, lineWidth: 1)
+        )
     }
 
     private func servicePath(for service: Service) -> String {
@@ -238,6 +291,8 @@ struct FeatureRow: View {
 }
 
 struct ReadyPage: View {
+    let enabledCount: Int
+
     var body: some View {
         VStack(spacing: 24) {
             Spacer()
@@ -251,7 +306,7 @@ struct ReadyPage: View {
                     .font(.largeTitle)
                     .fontWeight(.bold)
 
-                Text("Start syncing your commands")
+                Text("\(enabledCount) service\(enabledCount == 1 ? "" : "s") ready to sync")
                     .font(.title3)
                     .foregroundStyle(.secondary)
             }
@@ -271,7 +326,11 @@ struct ReadyPage: View {
 }
 
 #Preview {
-    OnboardingView(serviceDetector: ServiceDetector()) {
+    let detector = ServiceDetector()
+    let store = CommandStore(serviceDetector: detector)
+    let sync = SyncEngine(commandStore: store)
+
+    OnboardingView(serviceDetector: detector, syncEngine: sync) {
         print("Complete")
     }
 }
