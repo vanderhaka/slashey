@@ -42,7 +42,7 @@ struct CommandEditorView: View {
         self._editedContent = State(initialValue: command.content)
         self._editedDescription = State(initialValue: command.description)
         self._baselineCommand = State(initialValue: command)
-        let preselected = CommandEditorView.initiallySyncedServices(for: command, in: commandStore)
+        let preselected = Set(commandStore.syncedServices(for: command))
             .intersection(serviceDetector.installedServices)
         self._selectedSyncServices = State(initialValue: preselected)
     }
@@ -153,7 +153,7 @@ struct CommandEditorView: View {
                                     .foregroundStyle(service.color)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(service.displayName)
-                                    Text(isSource ? "Source service" : servicePath(for: service))
+                                    Text(isSource ? "Source service" : service.userCommandsPath)
                                         .font(.caption2)
                                         .foregroundStyle(.tertiary)
                                 }
@@ -384,7 +384,7 @@ struct CommandEditorView: View {
                 onUpdate?(refreshed)
             }
 
-            let refreshedSelections = CommandEditorView.initiallySyncedServices(for: baselineCommand, in: commandStore)
+            let refreshedSelections = Set(commandStore.syncedServices(for: baselineCommand))
                 .intersection(serviceDetector.installedServices)
             selectedSyncServices = refreshedSelections
 
@@ -417,34 +417,6 @@ struct CommandEditorView: View {
     private var allTargetsSelected: Bool {
         let syncable = availableSyncTargets.filter { $0 != command.sourceService }
         return !syncable.isEmpty && selectedSyncServices.count == syncable.count
-    }
-
-    private func servicePath(for service: Service) -> String {
-        switch service {
-        case .claudeCode:
-            return "~/.claude/commands/"
-        case .cursor:
-            return "~/.cursor/commands/"
-        case .windsurf:
-            return "~/.codeium/windsurf/memories/"
-        }
-    }
-
-    private static func initiallySyncedServices(for command: SlasheyCommand, in store: CommandStore) -> Set<Service> {
-        let matches = store.commands.compactMap { other -> Service? in
-            guard other.id != command.id,
-                  other.name == command.name,
-                  other.scope == command.scope,
-                  other.namespace == command.namespace,
-                  other.sourceService != command.sourceService else { return nil }
-
-            if command.scope == .project && other.projectPath != command.projectPath {
-                return nil
-            }
-
-            return other.sourceService
-        }
-        return Set(matches)
     }
 }
 

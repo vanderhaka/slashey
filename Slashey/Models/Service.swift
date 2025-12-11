@@ -79,3 +79,16 @@ enum ActivationMode: String, CaseIterable, Codable {
         }
     }
 }
+
+// MARK: - Service Path Extensions
+
+extension Service {
+    /// The path to user-level commands for this service
+    var userCommandsPath: String {
+        switch self {
+        case .claudeCode: return "~/.claude/commands/"
+        case .cursor: return "~/.cursor/commands/"
+        case .windsurf: return "~/.codeium/windsurf/memories/"
+        }
+    }
+}
