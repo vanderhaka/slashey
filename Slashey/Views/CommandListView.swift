@@ -11,6 +11,8 @@ struct CommandListView: View {
     @Binding var selectedCommand: SlasheyCommand?
     @Binding var searchText: String
     let commandStore: CommandStore
+    var isLoading: Bool = false
+    var onCreateCommand: (() -> Void)?
 
     var filteredCommands: [SlasheyCommand] {
         var commands = commandStore.commands(for: service, scope: scope)
@@ -25,29 +27,76 @@ struct CommandListView: View {
     }
 
     var body: some View {
-        List(selection: $selectedCommand) {
-            if filteredCommands.isEmpty {
-                ContentUnavailableView {
-                    Label("No Commands", systemImage: "terminal")
-                } description: {
-                    if !searchText.isEmpty {
-                        Text("No commands match your search")
-                    } else if let service = service {
-                        Text("No \(scope.displayName.lowercased()) commands for \(service.displayName)")
-                    } else {
-                        Text("No \(scope.displayName.lowercased()) commands found")
+        Group {
+            if isLoading {
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .controlSize(.large)
+                    Text("Loading commands...")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if filteredCommands.isEmpty {
+                emptyStateView
+            } else {
+                List(selection: $selectedCommand) {
+                    ForEach(filteredCommands) { command in
+                        CommandRowView(command: command, showService: service == nil)
+                            .tag(command)
                     }
                 }
-                .listRowBackground(Color.clear)
-            } else {
-                ForEach(filteredCommands) { command in
-                    CommandRowView(command: command, showService: service == nil)
-                        .tag(command)
-                }
+                .listStyle(.inset)
             }
         }
-        .listStyle(.inset)
         .navigationTitle(navigationTitle)
+    }
+
+    @ViewBuilder
+    private var emptyStateView: some View {
+        if !searchText.isEmpty {
+            // Search with no results
+            ContentUnavailableView.search(text: searchText)
+        } else if scope == .project {
+            // No project commands
+            ContentUnavailableView {
+                Label("No Project Commands", systemImage: "folder")
+            } description: {
+                Text("Project commands are stored in individual project folders.\n\nOpen a project to see its commands.")
+            }
+        } else if service != nil {
+            // Specific service with no commands
+            ContentUnavailableView {
+                Label("No Commands", systemImage: service!.iconName)
+            } description: {
+                Text("No user commands found for \(service!.displayName)")
+            } actions: {
+                Button {
+                    onCreateCommand?()
+                } label: {
+                    Label("Create Command", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        } else {
+            // No commands at all - first time user
+            ContentUnavailableView {
+                Label("Welcome to Slashey", systemImage: "terminal.fill")
+            } description: {
+                VStack(spacing: 8) {
+                    Text("Sync commands between Claude Code, Cursor, and Windsurf")
+
+                    Text("Get started by creating your first command, or import existing commands from your installed services.")
+                        .foregroundStyle(.tertiary)
+                }
+            } actions: {
+                Button {
+                    onCreateCommand?()
+                } label: {
+                    Label("Create Your First Command", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
     }
 
     private var navigationTitle: String {
